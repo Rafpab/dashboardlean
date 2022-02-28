@@ -1,119 +1,52 @@
 library("tidyverse")
 library("lubridate")
-library("treemap")
 Sys.setlocale("LC_TIME","C")
 
-
-shinyServer(function(input,output){
-    
-#Display main plots
-
-sidebar_up <- reactive({list(input$options_graph,input$list_countries_popular,input$list_allcategories,input$year_added_up)})
-
-observeEvent(input$sidebar_up(),{
-    if(input$options_graph == "Share of movie/TV shows"){
-        
-        output$available_graphs <- renderPlot({
-            ggplot(netflix_titles,aes(x=year(date_added),fill=type))+
-                geom_bar(position = "fill") + 
-                ggtitle("Share of Movie/TV Shows for Netflix")+
-                xlab("Year")+ylab("Share")+
-                scale_x_continuous(breaks = seq(from=min(year(netflix_titles$date_added)),to=max(year(netflix_titles$date_added)),by=2))
-        })
-    }
-    if(input$options_graph == "Most popular categories per country"){
-        observeEvent(input$list_countries_popular,{
-            crossed_popularity <- subset(crossed_popularity,
-                                         grepl(input$list_countries_popular,
-                                               crossed_popularity$country_name)==TRUE)
-            counted_popularity <- c()
-            for (i in categories) {
-                result <- sum(str_count(crossed_popularity$listed_in,i))
-                counted_popularity <- append(counted_popularity,result)
-            }
-            #This counts how many times each category appears in the categories of most popular shows
-            most_popular <- as.data.frame(cbind(categories,counted_popularity))
-            most_popular$counted_popularity <- as.numeric(most_popular$counted_popularity)
-            most_popular$categories <- as.factor(most_popular$categories)
-            most_popular <- most_popular[order(most_popular$counted_popularity,decreasing = TRUE),]
-            most_popular <- subset(most_popular,categories!="All") #We don't want the "All" category on the plot
-            most_popular <- head(most_popular,n=6) #just the 6 most popular genres
-            output$available_graphs <- renderPlot({ggplot(most_popular,aes(x=categories,y=counted_popularity,fill=categories,label=counted_popularity))+
-                    geom_bar(stat = "identity")+ggtitle("Most popular categories by country")+
-                    xlab("Category")+ylab("Number of times in weekly top 10")+
-                    geom_text(vjust=-0.5,hjust=0.5)
-                })
-        })
-        }
-    
-        if(input$options_graph=="Total releases over time"){
-        output$available_graphs <- renderPlot({netflix_titles %>% count(year=release_year) %>% 
-                ggplot(aes(x=year,y=n))+geom_line()+geom_point()+
-                ggtitle("Total releases by year")+xlab("Year")+ylab("Number of releases")+
-                scale_x_continuous(breaks = seq(from=2000,to=max(netflix_titles$release_year),by=2),limits = c(2000,2020))
-                })
-    }
-        if(input$options_graph=="Most popular actors"){
-        output$available_graphs <- renderPlot({ggplot(top_sum_actors,aes(x=actors_simplified,y=counted_actors,fill=actors_simplified,label=counted_actors))+
-                    geom_bar(stat = "identity") + ggtitle("Most popular actors by times casted")+
-                xlab("Actor's name")+ylab("Times casted")+coord_flip()+
-                theme(legend.position = "none")+geom_text(hjust=-0.2,vjust=0.5)
-            })
-        }
-        if(input$options_graph=="Rating share by genre"){
-            observeEvent(input$list_allcategories,{
-                genre_selected_r <- categories_rating[[input$list_allcategories]]
-                genre_selected_r <- head(genre_selected_r[order(genre_selected_r$category_count,decreasing = TRUE),],n=5)
-                genre_selected_r <- genre_selected_r %>% 
-                    arrange(desc(rating)) %>%
-                    mutate(prop = category_count/ sum(genre_selected_r$category_count) *100) %>%
-                    mutate(ypos = cumsum(prop)- 0.5*prop )
-                output$available_graphs <- renderPlot({ggplot(genre_selected_r,aes(x="",y=prop,fill=rating))+
-                        geom_bar(stat="identity",width=1)+coord_polar("y",start = 0)+
-                        theme_void()+ geom_text(aes(y = ypos, label = paste(round(prop),"%")), color = "white", size=6)
-                })
-            })
-        }
-        if(input$options_graph=="Most popular ratings"){
-            popular_ratings <- crossed_popularity %>% group_by(rating) %>% 
-                summarise(totalscore=round(mean(totalscore)))
-            
-            output$available_graphs <- renderPlot({popular_ratings %>%
-                    mutate(scoreandrating=paste(rating, totalscore, sep ="\n")) %>%
-                    treemap(index = "scoreandrating",vSize = "totalscore",
-                            type = "index",title = "Total score for each rating")
-                
-            })
-        }
-    
-    })
-
-#Display average length of movies
-
-length_releases_mostpopular <- reactive({list(input$year_released_down,input$country_production_down)})
-observeEvent(length_releases_mostpopular(),{
-
-    netflix_movies <- subset(netflix_titles, type == "Movie" & 
-                        grepl(input$year_released_down,netflix_titles$release_year_input)==TRUE &
-                        grepl(input$country_production_down,netflix_titles$country_input)==TRUE)
-    
-    netflix_titles <- subset(netflix_titles, grepl(input$year_released_down,netflix_titles$release_year_input)==TRUE &
-                                 grepl(input$country_production_down,netflix_titles$country_input)==TRUE)
-    
-    crossed_popularity <- subset(crossed_popularity, grepl(input$year_released_down,crossed_popularity$release_year)==TRUE &
-                                     grepl(input$country_production_down,crossed_popularity$country_name)==TRUE)
-                                     
-    crossed_popularity <- crossed_popularity %>% group_by(show_title) %>% summarise(totalscore=sum(totalscore)) %>% filter(totalscore==max(totalscore))
-    
-        
-    output$average_lengths <- renderText({paste(round(mean(netflix_movies$duration)),"mins")})
-    output$releases_by_country <- renderText({nrow(netflix_titles)})
-    output$most_popular_film <- renderText({crossed_popularity$show_title})
-
-#Display number of movies produced by country
-    
-    
-})
-
-})
-
+shinyUI(
+    fluidPage(includeCSS("www/style.css"),
+      titlePanel("Flixable - Marketing Manager Tool"),
+              sidebarLayout(
+                  mainPanel(plotOutput("available_graphs"),
+                            hr(),
+                            div(style="display:inline-block;width:30%;",
+                                h4("Average length of movies")),
+                            div(style="display:inline-block;width:30%;",
+                                h4("Productions released")),
+                            div(style="display:inline-block;width:38%;",
+                                h4("Most popular production")),
+                            div(style="display:inline-block;width:30%;",
+                                verbatimTextOutput("average_lengths",
+                                                   placeholder = TRUE)),
+                  div(style="display:inline-block;width:30%;",
+                      verbatimTextOutput(head("releases_by_country"),
+                                         placeholder = TRUE)),
+                  div(style="display:inline-block;width:38%;",
+                      verbatimTextOutput("most_popular_film",
+                                         placeholder = TRUE))
+                  ),
+                  fluidRow(
+                  sidebarPanel(id="sidebar", selectInput("options_graph",
+                                           label = "SELECT THE TYPE OF GRAPH YOU WANT TO DISPLAY",
+                                           choices = c("Share of movie/TV shows",
+                                                       "Most popular categories",
+                                                       "Total releases over time",
+                                                       "Most popular actors",
+                                                       "Rating share by genre",
+                                                       "Most popular ratings")),
+                               selectInput("list_countries_popular",
+                                           label = "SELECT A COUNTRY",
+                                           choices = c("All",countries_popularity)),
+                               selectInput("list_allcategories",
+                                           label = "SLECT A CATEGORY",
+                                           choices = c("All",categories)),
+                  selectInput("year_added_up",label = "SELECT A YEAR (ADDED TO PLATFORM)",choices = c("All",years_added))),
+                  
+                  sidebarPanel(id="sidebar", selectInput("year_released_down",
+                                           label = "SELECT A YEAR (RELEASE)",
+                                           choices = c("All",list_years_releases)),
+                               selectInput("country_production_down",
+                                           label = "SELECT A COUNTRY",
+                                           choices = c("All",countries_production))
+                               )
+                  
+              ))))
