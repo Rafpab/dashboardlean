@@ -1,188 +1,201 @@
 library("tidyverse")
 library("lubridate")
+library("treemap")
+library("scales")
 Sys.setlocale("LC_TIME","C")
-
-
 shinyServer(function(input,output){
-    popular_netflix <- read_tsv("https://top10.netflix.com/data/all-weeks-countries.tsv")
-    netflix_titles <- read.csv("https://www.dropbox.com/s/ervmcd91t1o5xaw/netflix_titles.csv?dl=1",encoding = "UTF-8")
-    netflix_titles$type <- as.factor(netflix_titles$type)
-    netflix_titles$date_added2 <- as.Date(netflix_titles$date_added,format = "%B %d, %Y")
-    netflix_titles$date_released <- as.Date(as.character(netflix_titles$release_year),format = "%Y",origin="1970-01-01")
-    netflix_titles <- na.omit(netflix_titles)
-    possible_years <- as.character(sort(unique(year(netflix_titles$date_added2))))
     
-    netflix_titles$listed_in <- paste(netflix_titles$listed_in,", All",sep = "")
-    netflix_titles$country <- paste(netflix_titles$country,", All",sep = "")
-    netflix_titles$yearadded <- year(netflix_titles$date_added2)
-    netflix_titles$yearadded <- paste(netflix_titles$yearadded,", All",sep = "")
-    netflix_tv <- subset(netflix_titles,type=="TV Show")
-    netflix_movies <- subset(netflix_titles,type=="Movie")
-    netflix_movies$duration <- as.numeric(str_extract(netflix_movies$duration,"^[0-9]+ "))
-    netflix_movies <- na.omit(netflix_movies)
-    
-    
-    beginning <- unique(str_extract(netflix_titles$listed_in,"^[^,]+"))
-    middle <- unique(str_extract(netflix_titles$listed_in,"(?<=,)[^,]+(?=,)"))
-    middle <- gsub("^ +","",middle)
-    end <- unique(str_extract(netflix_titles$listed_in,"[^,]+$"))
-    end <- gsub("^ +","",end)
-    categories <- c(beginning,middle,end)
-    categories <- unique(categories)
-    categories <- sort(as.character(na.omit(as.factor(categories))))
-    
-    beginning_m <- unique(str_extract(netflix_movies$listed_in,"^[^,]+"))
-    middle_m <- unique(str_extract(netflix_movies$listed_in,"(?<=,)[^,]+(?=,)"))
-    middle_m <- gsub("^ +","",middle_m)
-    end_m <- unique(str_extract(netflix_movies$listed_in,"[^,]+$"))
-    end_m <- gsub("^ +","",end_m)
-    categories_movies <- c(beginning_m,middle_m,end_m)
-    categories_movies <- unique(categories_movies)
-    categories_movies <- sort(as.character(na.omit(as.factor(categories_movies))))
-    
-    countries <- unique(netflix_titles$country)
-    countries_beginning <- unique(str_extract(countries,"^[^,]+"))
-    countries_middle <- unique(str_extract(countries,"(?<=,)[^,]+(?=,)"))
-    countries_middle <- gsub("^ +","",countries_middle)
-    countries_ending <- unique(str_extract(countries,"[^,]+$"))
-    countries_ending <- gsub("^ +","",countries_ending)
-    countries_simplified <- unique(c(countries_beginning,countries_middle,countries_ending))
-    countries_simplified <- sort(as.character(na.omit(as.factor(countries_simplified))))
-    
-    actors <- unique(netflix_titles$cast)
-    actors_beginning <- unique(str_extract(actors,"^[^,]+"))
-    actors_middle <- unique(str_extract(actors,"(?<=,)[^,]+(?=,)"))
-    actors_middle <- gsub("^ +","",actors_middle)
-    actors_ending <- unique(str_extract(actors,"[^,]+$"))
-    actors_ending <- gsub("^ +","",actors_ending)
-    actors_simplified <- unique(c(actors_beginning,actors_middle,actors_ending))
-    actors_simplified <- str_extract(actors_simplified,"^[:print:]+\\s[:print:]+")
-    actors_simplified <- sort(as.character(na.omit(as.factor(actors_simplified))))
-    counted_actors <- c()
-    for (i in actors_simplified) {
-        actorssum <- sum(str_count(netflix_titles$cast,i))
-        counted_actors <- append(counted_actors,actorssum)
-    }
-    
-    sum_actors <- as.data.frame(cbind(actors_simplified,counted_actors))
-    sum_actors$counted_actors <- as.numeric(sum_actors$counted_actors)
-    sum_actors$actors_simplified <- as.factor(sum_actors$actors_simplified)
-    sum_actors <- sum_actors[order(counted_actors,decreasing = FALSE),]
-    sum_actors <- head(sum_actors,n=7)
-    
-    convertscore <- function(x) {
-        
-        if(x==1){return(10)}
-        if(x==2){return(9)}
-        if(x==3){return(8)}
-        if(x==4){return(7)}
-        if(x==5){return(6)}
-        if(x==6){return(5)}
-        if(x==7){return(4)}
-        if(x==8){return(3)}
-        if(x==9){return(2)}
-        if(x==10){return(1)}
-        
-    }
-    
-    popular_netflix$scores <- as.numeric(lapply(popular_netflix$weekly_rank, convertscore))
-    
-    netflix_popularity_grouped <- popular_netflix %>% group_by(country_name,show_title) %>% summarise(totalscore = sum(scores))
-    
-    crossed_titles <- subset(netflix_popularity_grouped, show_title %in% netflix_titles$title)
-    
-    
-    indices <- match(crossed_titles$show_title,netflix_titles$title, nomatch = NA, incomparables = NULL)
-    crossed_categories <- netflix_titles[indices,11]
-    crossed_titles$genre <- crossed_categories
-    crossed_year <- netflix_titles[indices,14]
-    crossed_titles$year_added <- crossed_year
-    crossed_titles$country_name <- paste(crossed_titles$country_name,", All",sep = "")
-        
-    
-    
-    
-    
-    
-    observeEvent(input$year_tv_movie_date,{
-        netflix_bar <- subset(netflix_titles,date_added2 >= min(input$year_tv_movie_date) & date_added2 <= max(input$year_tv_movie_date))
-        
-        observeEvent(input$movie_tv_graph,{
-            if(input$movie_tv_graph == "Share of movie/TV shows"){
-                netflix_bar$year_added <- as.factor(format(netflix_bar$date_added2,format="%Y"))
-                output$tv_movie_bar <- renderPlot({ggplot(netflix_bar,aes(x=year_added,fill=type))+
-                        geom_bar(position = "fill") + ggtitle("Share of Movie/TV Shows for Netflix")+xlab("Year")+ylab("Share") 
-                })
-            }
-            if(input$movie_tv_graph == "Timeline of total movies/TV shows by year added"){output$tv_movie_bar <- renderPlot({netflix_bar %>% count(type,year=year(date_added2)) %>% ggplot(aes(year,y=n,color=type))+geom_line()+geom_point()}
-            )
-            
-            }
-            
-        }
-        )
-        
-    }
-    )
-    
-    observeEvent(input$year_tv_movie_date,{
-        netflix_release <- subset(netflix_titles,year(date_released) >= year(min(input$year_tv_movie_date)) & year(date_released) <= year(max(input$year_tv_movie_date)))
-        
-        observeEvent(input$movie_tv_graph,{
-            if(input$movie_tv_graph == "Timeline of total releases"){
-                output$tv_movie_bar <- renderPlot({netflix_release %>% count(year=year(date_released)) %>% ggplot(aes(year,y=n))+geom_line()+geom_point()}) 
-                
-            }
-            
-            
-        }
-        )
-        
-    }
-    )
-    
-    observeEvent(input$movie_tv_graph,{
-        if(input$movie_tv_graph == "Most popular actors"){
-            
-            output$tv_movie_bar <- renderPlot({ggplot(sum_actors,aes(x=actors_simplified,y=counted_actors,fill=actors_simplified))+
-                    geom_bar(stat = "identity") + ggtitle("Most popular actors by times casted")+xlab("Actor's name")+ylab("Times casted")+coord_flip() + theme(legend.position = "none")
-            })   
-        }
-    }
-                 
-                 )
-    
-    
-    average_lists <- reactive({list(input$list_movies,input$years_added,input$list_countries)})
-    
-    observeEvent(average_lists(),{
-        
-        
-            netflix_movies <- subset(netflix_movies,grepl(input$list_movies,netflix_movies$listed_in)==TRUE & grepl(input$list_countries,netflix_movies$country)==TRUE & grepl(input$years_added,netflix_movies$yearadded)==TRUE)
-            output$average_lengths <- renderText({paste(round(mean(netflix_movies$duration)),"mins")})
-            output$number_movies_produced <- renderText({nrow(netflix_movies)})
-            crossed_titles <- subset(crossed_titles,grepl(input$list_countries,crossed_titles$country_name)==TRUE & grepl(input$years_added,crossed_titles$year_added)==TRUE)
-            counted_categories <- c()
-            for (i in categories) {
-                result <- sum(str_count(crossed_titles$genre,i))
-                counted_categories <- append(counted_categories,result)
-            }
-            counted <- as.data.frame(cbind(categories,counted_categories))
-            counted$counted_categories <- as.numeric(counted$counted_categories)
-            counted$categories <- as.factor(counted$categories)
-            counted <- counted[order(counted_categories,decreasing = TRUE),]
-            counted <- head(counted,n=7)
-            counted <- subset(counted,categories!="All")
-            output$categories_country <- renderPlot({ggplot(counted,aes(x=categories,y=counted_categories,fill=categories)) + geom_bar(stat = "identity")})
-        
-        
-    }
-    
-    )
-    
-    
-    
-    
-}
+#Display main plots
 
-)
+sidebar_up <- reactive({list(input$list_countries_popular,input$list_allcategories,input$year_added_up)})
+
+
+observeEvent(input$options_graph,{
+    if(input$options_graph == "Share of movie/TV shows"){
+        observeEvent(sidebar_up(),{
+        netflix_titles <- subset(netflix_titles, grepl(input$list_countries_popular,netflix_titles$country_input)==TRUE &
+                                     grepl(input$list_allcategories,netflix_titles$listed_in)==TRUE &
+                                 grepl(input$year_added_up,netflix_titles$added_year_input)==TRUE)
+        
+        output$available_graphs <- renderPlot({netflix_titles %>% group_by(Year = year(date_added),type) %>%
+                summarise(Total = n()) %>% mutate(Percentage = Total/sum(Total)) %>% 
+            ggplot(aes(x=Year,y=Percentage,fill=type))+
+                geom_bar(width=0.9 ,position="stack",stat="identity") + geom_text(aes(label=scales::percent(Percentage,accuracy=1)),position = position_stack(vjust=0.5),size=3)+
+                labs(title="Share of Movie/TV Shows for Netflix")+
+                xlab("Year")+ylab("Share")+
+                scale_x_continuous(breaks = seq(from=min(year(netflix_titles$date_added)),to=max(year(netflix_titles$date_added)),by=2))+
+                labs(fill="Type")+
+                theme(plot.background = element_rect(fill=plot_background,color =plot_background),
+                      panel.background = element_rect(fill = plot_background),
+                      panel.grid = element_blank(),plot.title = element_text(color="gray80",size=20),
+                      axis.title.x = element_text(color = "gray80",size=15),
+                      axis.title.y = element_text(color = "gray80",size=15),
+                      axis.text = element_text(color="gray80",size=10),
+            legend.key = element_rect(fill = plot_background),
+            legend.background = element_rect(fill = plot_background),
+            legend.text = element_text(color = "gray80"),
+            legend.title = element_text(color = "gray80"))+
+                scale_fill_manual(values=bar_colors)
+        })
+        })
+    }
+    if(input$options_graph == "Most popular categories"){
+        observeEvent(sidebar_up(),{
+            crossed_popularity <- subset(crossed_popularity, grepl(input$list_countries_popular,crossed_popularity$country_name)==TRUE &
+                                         grepl(input$year_added_up,crossed_popularity$added_year_input)==TRUE)
+            counted_popularity <- c()
+            for (i in categories) {
+                result <- sum(str_count(crossed_popularity$listed_in,i))
+                counted_popularity <- append(counted_popularity,result)
+            }
+            #This counts how many times each category appears in the categories of most popular shows
+            most_popular <- as.data.frame(cbind(categories,counted_popularity))
+            most_popular$counted_popularity <- as.numeric(most_popular$counted_popularity)
+            most_popular$categories <- as.factor(most_popular$categories)
+            most_popular <- most_popular[order(most_popular$counted_popularity,decreasing = TRUE),]
+            most_popular <- head(most_popular,n=6) #just the 6 most popular genres
+            output$available_graphs <- renderPlot({ggplot(most_popular,aes(x=categories,y=counted_popularity,fill=categories,label=counted_popularity))+
+                    geom_bar(stat = "identity")+labs(title="Most popular categories")+
+                    xlab("Category")+ylab("Number of times in weekly top 10")+
+                    geom_text(color="gray80",vjust=-0.5,hjust=0.5)+
+                    labs(fill="Categories")+
+                    scale_fill_manual(values=bar_colors)+
+                    theme(plot.background = element_rect(fill=plot_background,color =plot_background),
+                          panel.background = element_rect(fill = plot_background),
+                          panel.grid = element_blank(),plot.title = element_text(color="gray80",size=20),
+                          axis.title.x = element_text(color = "gray80",size=15),
+                          axis.title.y = element_text(color = "gray80",size=15),
+                          axis.text.y = element_text(color="gray80",size=10),
+                          axis.text.x = element_blank(),
+                          legend.key = element_rect(fill = plot_background),
+                          legend.background = element_rect(fill = plot_background),
+                          legend.text = element_text(color = "gray80"),
+                          legend.title = element_text(color = "gray80"))    
+                })
+        })
+        }
+    
+        if(input$options_graph=="Total releases over time"){
+            observeEvent(sidebar_up(),{
+                netflix_titles <- subset(netflix_titles, grepl(input$list_countries_popular,netflix_titles$country_input)==TRUE &
+                                             grepl(input$list_allcategories,netflix_titles$listed_in)==TRUE &
+                                             release_year >= min(year(date_added)))
+                                             
+        output$available_graphs <- renderPlot({netflix_titles %>% count(year=release_year) %>% 
+                ggplot(aes(x=year,y=n,label=n))+geom_line(color="#44465f",size=1.1)+geom_point(fill="#44465f",size=3.5,color="#dedede",pch=21)+
+                ggtitle("Total releases by year")+xlab("Year")+ylab("Number of releases")+
+                scale_x_continuous(breaks = seq(from=min(year(netflix_titles$date_added)),
+                                                to=max(year(netflix_titles$date_added)),by=2),
+                                   limits = c(min(year(netflix_titles$date_added)),
+                                              to=max(year(netflix_titles$date_added))))+
+                geom_text(color="gray80",vjust=0.5,hjust=-0.25)+
+                theme(plot.background = element_rect(fill=plot_background,color =plot_background),
+                      panel.background = element_rect(fill = plot_background),
+                      panel.grid = element_blank(),plot.title = element_text(color="gray80",size=20),
+                      axis.title.x = element_text(color = "gray80",size=15),
+                      axis.title.y = element_text(color = "gray80",size=15),
+                      axis.text = element_text(color="gray80",size=10),
+                      legend.key = element_rect(fill = plot_background),
+                      legend.background = element_rect(fill = plot_background),
+                      legend.text = element_text(color = "gray80"),
+                      legend.title = element_text(color = "gray80"))
+                
+                })
+            })
+    }
+        if(input$options_graph=="Most popular actors"){
+            observeEvent(sidebar_up(),{
+        output$available_graphs <- renderPlot({ggplot(top_sum_actors,aes(x=actors_simplified,y=counted_actors,fill=actors_simplified,label=counted_actors))+
+                    geom_bar(stat = "identity") + ggtitle("Most popular actors by times casted")+
+                xlab("Actor's name")+ylab("Times casted")+coord_flip()+
+                geom_text(hjust=-0.2,vjust=0.5,color="gray80")+labs(fill="Actor")+
+                scale_fill_manual(values = bar_colors)+
+                theme(plot.background = element_rect(fill=plot_background,color =plot_background),
+                      panel.background = element_rect(fill = plot_background),
+                      panel.grid = element_blank(),plot.title = element_text(color="gray80",size=20),
+                      axis.title.x = element_text(color = "gray80",size=15),
+                      axis.title.y = element_text(color = "gray80",size=15),
+                      axis.text.x = element_text(color="gray80",size=10),
+                      axis.text.y = element_blank(),
+                      legend.key = element_rect(fill = plot_background),
+                      legend.background = element_rect(fill = plot_background),
+                      legend.text = element_text(color = "gray80"),
+                      legend.title = element_text(color = "gray80"))
+            })
+            })
+        }
+        if(input$options_graph=="Rating share by genre"){
+            observeEvent(sidebar_up(),{
+                genre_selected_r <- categories_rating[[input$list_allcategories]]
+                genre_selected_r <- head(genre_selected_r[order(genre_selected_r$category_count,decreasing = TRUE),],n=5)
+                genre_selected_r <- genre_selected_r %>% 
+                    arrange(desc(rating)) %>%
+                    mutate(prop = category_count/ sum(genre_selected_r$category_count) *100) %>%
+                    mutate(ypos = cumsum(prop)- 0.5*prop )
+                output$available_graphs <- renderPlot({ggplot(genre_selected_r,aes(x="",y=prop,fill=rating))+
+                        geom_bar(stat="identity",width=1)+coord_polar("y",start = 0)+ggtitle("Share of ratings for each genre")+
+                        geom_text(aes(y = ypos, label = paste(round(prop),"%")), color = "white", size=6)+
+                        scale_fill_manual(values=bar_colors)+
+                        theme(plot.background = element_rect(fill=plot_background,color =plot_background),
+                              panel.background = element_rect(fill = plot_background),
+                              panel.grid = element_blank(),plot.title = element_text(color="gray80",size=20),
+                              axis.title.x = element_blank(),
+                              axis.title.y = element_blank(),
+                              axis.text.x = element_blank(),
+                              axis.text.y = element_blank(),
+                              legend.key = element_rect(fill = plot_background),
+                              legend.background = element_rect(fill = plot_background),
+                              legend.text = element_text(color = "gray80"),
+                              legend.title = element_text(color = "gray80"))
+                },bg="transparent")
+            })
+        }
+        if(input$options_graph=="Most popular ratings"){
+            observeEvent(sidebar_up(),{
+                crossed_popularity <- subset(crossed_popularity, grepl(input$list_countries_popular,crossed_popularity$country_name)==TRUE &
+                                                 grepl(input$list_allcategories,crossed_popularity$listed_in)==TRUE &
+                                                 grepl(input$year_added_up,crossed_popularity$added_year_input)==TRUE)            
+            popular_ratings <- crossed_popularity %>% group_by(rating) %>% 
+                summarise(totalscore=round(mean(totalscore)))
+            
+            output$available_graphs <- renderPlot({popular_ratings %>%
+                    mutate(scoreandrating=paste(rating, totalscore, sep ="\n")) %>%
+                    treemap(index = "scoreandrating",vSize = "totalscore",
+                            type = "index",title = "Mean score for each rating"
+                            )
+                
+            },bg=plot_background)
+            })
+        }
+    
+    })
+
+#Display average length of movies
+
+length_releases_mostpopular <- reactive({list(input$year_released_down,input$country_production_down)})
+observeEvent(length_releases_mostpopular(),{
+
+    netflix_movies <- subset(netflix_titles, type == "Movie" & 
+                        grepl(input$year_released_down,netflix_titles$release_year_input)==TRUE &
+                        grepl(input$country_production_down,netflix_titles$country_input)==TRUE)
+    
+    netflix_titles <- subset(netflix_titles, grepl(input$year_released_down,netflix_titles$release_year_input)==TRUE &
+                                 grepl(input$country_production_down,netflix_titles$country_input)==TRUE)
+    
+    crossed_popularity <- subset(crossed_popularity, grepl(input$year_released_down,crossed_popularity$release_year)==TRUE &
+                                     grepl(input$country_production_down,crossed_popularity$country_name)==TRUE)
+                                     
+    crossed_popularity <- crossed_popularity %>% group_by(show_title) %>% summarise(totalscore=sum(totalscore)) %>% filter(totalscore==max(totalscore))
+    
+        
+    output$average_lengths <- renderText({paste(round(mean(netflix_movies$duration)),"mins")})
+    output$releases_by_country <- renderText({nrow(netflix_titles)})
+    output$most_popular_film <- renderText({crossed_popularity$show_title})
+
+#Display number of movies produced by country
+    
+    
+})
+
+})
+
