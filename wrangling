@@ -1,0 +1,152 @@
+library("tidyverse")
+library("lubridate")
+Sys.setlocale("LC_TIME","C")
+
+#Work on main dataset
+
+netflix_titles <- read.csv("https://www.dropbox.com/s/ervmcd91t1o5xaw/netflix_titles.csv?dl=1",encoding = "UTF-8")
+
+netflix_titles$date_added <- as.Date(netflix_titles$date_added,format = "%B %d, %Y")
+netflix_titles <- netflix_titles %>% drop_na(date_added)
+
+#2.Average lengths
+netflix_titles$duration <- as.numeric(str_extract(netflix_titles$duration,"^[0-9]+ "))
+netflix_titles <- netflix_titles %>% drop_na(duration)
+
+#3.Popularity
+netflix_popularity <- read_tsv("https://top10.netflix.com/data/all-weeks-countries.tsv") 
+#I had to work with a different dataset for this, to get information about a production's popularity
+beginning <- unique(str_extract(netflix_titles$listed_in,"^[^,]+"))
+middle <- unique(str_extract(netflix_titles$listed_in,"(?<=,)[^,]+(?=,)"))
+middle <- gsub("^ +","",middle)
+end <- unique(str_extract(netflix_titles$listed_in,"[^,]+$"))
+end <- gsub("^ +","",end)
+categories <- c(beginning,middle,end)
+categories <- unique(categories)
+categories <- sort(as.character(na.omit(as.factor(categories))))
+netflix_titles$listed_in <- gsub("\\sTV Shows"," TVshows",netflix_titles$listed_in)
+categories <- gsub("\\sTV Shows"," TVshows",categories) #This is for not counting "Tv Shows" pattern in other strings that contain the same pattern
+netflix_titles$listed_in <- gsub("\\sMovies"," Movie",netflix_titles$listed_in)
+categories <- gsub("\\sMovies"," Movie",categories) #And this is for not counting "Movies" pattern.
+categories2 <- c(categories,"All") #This is for the rating/genre share graph
+netflix_titles$listed_in <- paste(netflix_titles$listed_in,", All",sep = "") #This is for subsetting purposes
+
+convertscore <- function(x) {
+  
+  if(x==1){return(10)}
+  if(x==2){return(9)}
+  if(x==3){return(8)}
+  if(x==4){return(7)}
+  if(x==5){return(6)}
+  if(x==6){return(5)}
+  if(x==7){return(4)}
+  if(x==8){return(3)}
+  if(x==9){return(2)}
+  if(x==10){return(1)}
+}
+#This function turns the place that a production occupies in the top 10 of the week
+#Into another number, then I can just sum the values, the movies with the highest
+#values, are the most popular ones.
+
+netflix_popularity$scores <- as.numeric(lapply(netflix_popularity$weekly_rank, convertscore))
+netflix_popularity_grouped <- netflix_popularity %>% group_by(country_name,show_title) %>% summarise(totalscore = sum(scores))
+crossed_titles <- subset(netflix_popularity_grouped, show_title %in% netflix_titles$title) #This stores only titles that appear in both dataframes
+indexes <- match(crossed_titles$show_title,netflix_titles$title, nomatch = NA, incomparables = NULL)
+Crossed_categories <- netflix_titles[indexes,c(7,8,9,11)] #categories, rating, release and added dates of release of all the shows that coincide
+crossed_popularity <- cbind(crossed_titles,Crossed_categories)
+crossed_popularity$country_name <- paste(crossed_popularity$country_name,", All",sep = "") #This is for subsetting, for being able to choose an "All" category
+countries_popularity <- unique(netflix_popularity$country_name)
+
+counted_categories <- c()
+
+for (i in categories) {
+  result <- sum(str_count(crossed_popularity$listed_in,i))
+  counted_categories <- append(counted_categories,result)
+}
+
+counted <- as.data.frame(cbind(categories,counted_categories))
+counted$counted_categories <- as.numeric(counted$counted_categories)
+counted$categories <- as.factor(counted$categories)
+counted <- counted[order(counted_categories,decreasing = TRUE),]
+counted <- head(counted,n=7)
+counted <- subset(counted,categories!="All")
+
+
+#4. Total releases
+
+netflix_titles$release_year <- as.numeric(netflix_titles$release_year)
+
+#5. Most popular actors
+
+#actors <- unique(netflix_titles$cast)
+#actors_beginning <- unique(str_extract(actors,"^[^,]+"))
+#actors_middle <- unique(str_extract(actors,"(?<=,)[^,]+(?=,)"))
+#actors_middle <- gsub("^ +","",actors_middle)
+#actors_ending <- unique(str_extract(actors,"[^,]+$"))
+#actors_ending <- gsub("^ +","",actors_ending)
+#actors_simplified <- unique(c(actors_beginning,actors_middle,actors_ending))
+#actors_simplified <- str_extract(actors_simplified,"^[:print:]+\\s[:print:]+")
+#actors_simplified <- sort(as.character(na.omit(as.factor(actors_simplified))))
+#counted_actors <- c()
+#for (i in actors_simplified) {
+#  actorssum <- sum(str_count(netflix_titles$cast,i))
+#  counted_actors <- append(counted_actors,actorssum)
+#} 
+#sum_actors <- as.data.frame(cbind(actors_simplified,counted_actors))
+
+#This is very slow, I would had created the dataframe outside and read it into the app, 
+#but i'm leaving here the code for asessment purposes
+
+#In fact, i finally decided to do it, and put everything into comments for you to see the process behind.
+
+sum_actors <- read.csv("https://www.dropbox.com/s/s3qol516271ukho/sum_actors.csv?dl=1")
+sum_actors$counted_actors <- as.numeric(sum_actors$counted_actors)
+sum_actors$actors_simplified <- as.factor(sum_actors$actors_simplified)
+sum_actors <- sum_actors[order(sum_actors$counted_actors,decreasing = TRUE),]
+top_sum_actors <- head(sum_actors,n=5)
+
+#6. Proportion of genres by rating
+
+netflix_titles <- netflix_titles[!(netflix_titles$rating==""), ]
+netflix_titles$rating <- as.factor(netflix_titles$rating)
+ratings <- unique(netflix_titles$rating)
+
+categories_rating <- list()
+x <- 1
+
+for (i in categories2) {
+result <- returnValue(netflix_titles %>% group_by(rating) %>% 
+  summarise(category_count = sum(str_count(listed_in,i))))
+categories_rating[[x]] <- result
+x <- x+1
+}
+names(categories_rating) <- categories2
+
+#7. Some extra features
+
+netflix_titles$release_year_input <- paste(netflix_titles$release_year,", All",sep = "")
+netflix_titles$added_year_input <- paste(year(netflix_titles$date_added),", All",sep = "")
+
+
+list_years_releases <- sort(unique(netflix_titles$release_year),decreasing = TRUE)
+
+netflix_titles$country_input <- paste(netflix_titles$country,", All",sep = "")
+crossed_popularity$release_year <- paste(crossed_popularity$release_year,", All",sep = "")
+crossed_popularity$listed_in <- paste(crossed_popularity$listed_in,", All",sep = "")
+crossed_popularity$added_year_input <- paste(year(crossed_popularity$date_added),", All",sep = "")
+
+country_beginning <- unique(str_extract(netflix_titles$country,"^[^,]+"))
+country_middle <- unique(str_extract(netflix_titles$country,"(?<=,)[^,]+(?=,)"))
+country_middle <- gsub("^ +","",country_middle)
+country_end <- unique(str_extract(netflix_titles$country,"[^,]+$"))
+country_end <- gsub("^ +","",country_end)
+countries_production <- c(country_beginning,country_middle,country_end)
+countries_production <- unique(countries_production)
+countries_production <- sort(as.character(na.omit(as.factor(countries_production))))
+years_added <- sort(unique(year(netflix_titles$date_added)),decreasing=TRUE)
+
+
+#plots hexcode
+
+plot_background <- "#141414"
+bar_colors <- c("#c1071e","#dedede","#44465f","#191f45","#8f8383","#860c1b")
