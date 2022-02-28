@@ -1,0 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald&display=swap');
+
+body {
+  background-color: #141414;
+  }
+  
+h2{
+  color:#c1071e;
+  font-family: "Oswald", Tahoma;
+  font-weight: bold;
+}
+
+h4{
+  color: #c9c9c9;
+  font-family: "Oswald",Tahoma;
+  text-align: center;
+  font-weight: bold;
+}
+
+pre{
+  font-family: "Oswald",Tahoma;
+  text-align:center;
+  font-size: 1.5em;
+}
+
+#sidebar{
+  background-color: #141414;
+  color:#c9c9c9;
+  font-family: "Oswald",Tahoma;
+}
